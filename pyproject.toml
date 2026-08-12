@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adaptive-ma"
+version = "0.1.0"
+description = "A model-based adaptive moving average (state-space Kalman filter)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "nothankyouzzz"}]
+dependencies = ["numpy>=1.20"]
+
+[tool.setuptools]
+py-modules = ["adaptive_ma"]
