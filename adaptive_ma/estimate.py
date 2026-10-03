@@ -16,8 +16,8 @@ from dataclasses import dataclass
 import numpy as np
 import scipy.optimize
 
-from kalman_core import StateSpaceSpec, run_filter
-from params import MultiscaleParams, calc_u_scale
+from .core import StateSpaceSpec, run_filter
+from .params import MultiscaleParams, calc_u_scale
 
 
 @dataclass

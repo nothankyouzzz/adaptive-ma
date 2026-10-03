@@ -1,6 +1,6 @@
 """Multiscale State-Space Moving Average models (Unified Specification).
 
-Uses kalman_core.py engine with P1 scale equivariance and P2 knob separation.
+Uses the core engine with P1 scale equivariance and P2 knob separation.
 """
 
 from __future__ import annotations
@@ -9,8 +9,8 @@ import math
 
 import numpy as np
 
-from kalman_core import StateSpaceSpec, run_filter
-from params import MultiscaleParams
+from .core import StateSpaceSpec, run_filter
+from .params import MultiscaleParams
 
 
 def build_spec_2state(
@@ -61,7 +61,7 @@ def build_spec_5state(
 ) -> StateSpaceSpec:
     """5-state Harvey specification [mu, beta, c, c*, h]."""
     if params is not None:
-        from estimate import build_spec_from_params
+        from .estimate import build_spec_from_params
 
         return build_spec_from_params(params)
 
@@ -105,7 +105,7 @@ def build_spec_5state_ct(
     sigma_eps: float = 0.50,
 ):
     """Continuous-Time 5-state specification with physical time constants."""
-    from kalman_core import ContinuousTimeSpec
+    from .core import ContinuousTimeSpec
 
     lam = 2.0 * math.pi / max(cycle_period_hours, 2.0)
     A = np.array(
@@ -153,7 +153,7 @@ def filter_multiscale(
     c: float | np.ndarray = 1.0,
     **kwargs,
 ) -> tuple[np.ndarray, dict[str, np.ndarray | float]]:
-    """Run multiscale filter via kalman_core engine."""
+    """Run multiscale filter via the core engine."""
     if spec is None:
         spec = build_spec_5state(**kwargs)
 

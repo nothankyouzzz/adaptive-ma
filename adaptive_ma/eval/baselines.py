@@ -81,7 +81,7 @@ def tune_ema_on_train(
 ) -> float:
     """Select optimal alpha on training split."""
     alphas = np.logspace(-3, 0, 150)
-    from bench.metrics import calc_smoothness
+    from .metrics import calc_smoothness
 
     if target_smoothness is not None:
         # Match target smoothness

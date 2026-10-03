@@ -13,9 +13,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from instruments import compute_instrument_signals
-from kalman_core import StateSpaceSpec, run_filter
-from multiscale_ma import build_spec_2state
+from .core import StateSpaceSpec, run_filter
+from .instruments import compute_instrument_signals
+from .multiscale import build_spec_2state
 
 
 @dataclass
@@ -78,7 +78,7 @@ def filter_volatility_instrument(
         c_eff = c_hat.copy()
         d_eff = d_hat.copy()
 
-    # In kalman_core:
+    # In the core engine:
     # Q(xi, c) = c * exp(xi) * Q0
     # R(xi, c) = c * exp(-xi) * R0
     # To match c_eff on Q and d_eff on R:
