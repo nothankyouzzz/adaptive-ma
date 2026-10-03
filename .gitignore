@@ -9,3 +9,4 @@ dist/
 
 # Cached market data (re-fetchable)
 bench/data/cache/
+data/cache/
