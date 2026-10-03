@@ -33,7 +33,9 @@ class SSMOutput:
     u_scale: float
 
 
-def van_loan_discretization(A: np.ndarray, Qc: np.ndarray, dt: float) -> tuple[np.ndarray, np.ndarray]:
+def van_loan_discretization(
+    A: np.ndarray, Qc: np.ndarray, dt: float
+) -> tuple[np.ndarray, np.ndarray]:
     """Van Loan (1978) closed-form matrix fraction discretization of continuous-time SDE:
 
         dx = A x dt + dW,  E[dW dW^T] = Qc dt
@@ -178,7 +180,7 @@ def run_filter(
     imbalance = np.asarray(imbalance, dtype=float)
 
     if u_scale is None:
-        from params import calc_u_scale
+        from .params import calc_u_scale
 
         u_scale = calc_u_scale(price) if normalize else 1.0
 

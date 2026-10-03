@@ -6,8 +6,8 @@ import math
 
 import numpy as np
 
-from kalman_core import StateSpaceSpec, run_filter
-from multiscale_ma import build_spec_2state, build_spec_5state, calc_observability
+from adaptive_ma.core import StateSpaceSpec, run_filter
+from adaptive_ma.multiscale import build_spec_2state, build_spec_5state, calc_observability
 
 
 def test_b1_ema_steady_state_equivalence():
@@ -106,7 +106,7 @@ def test_observability_unobservable_negative_control():
 
 def test_ct_van_loan_discretization_identity():
     """Verify that CT 5-state Van Loan discretization at dt=1.0 matches discrete F to 1e-12."""
-    from multiscale_ma import build_spec_5state_ct
+    from adaptive_ma.multiscale import build_spec_5state_ct
 
     ct_spec = build_spec_5state_ct(cycle_period_hours=72.0, rho_c=0.96, rho_h=0.70)
     discrete_spec = ct_spec.discretize(dt=1.0)

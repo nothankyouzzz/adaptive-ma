@@ -10,7 +10,21 @@ import numpy as np
 import pandas as pd
 import requests
 
-CACHE_DIR = os.path.join(os.path.dirname(__file__), "data", "cache")
+DEFAULT_CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cache", "adaptive-ma")
+
+
+def resolve_cache_dir() -> str:
+    """Cache directory: ``$ADAPTIVE_MA_DATA_DIR`` if set, else ``~/.cache/adaptive-ma``.
+
+    Never resolves inside the installed package directory.
+    """
+    env_dir = os.environ.get("ADAPTIVE_MA_DATA_DIR")
+    if env_dir:
+        return os.path.abspath(os.path.expanduser(env_dir))
+    return DEFAULT_CACHE_DIR
+
+
+CACHE_DIR = resolve_cache_dir()
 CACHE_FILE = os.path.join(CACHE_DIR, "binance_BTCUSDT_1m_sample.csv")
 MANIFEST_FILE = os.path.join(CACHE_DIR, "manifest.json")
 

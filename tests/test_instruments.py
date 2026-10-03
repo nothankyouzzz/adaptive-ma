@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from bench.dgp import generate_roll_bounce
-from bench.metrics import calc_impulse_response_latency
-from instruments import de_drifted_roll_estimator, tsrv_estimator
+from adaptive_ma.eval.dgp import generate_roll_bounce
+from adaptive_ma.eval.metrics import calc_impulse_response_latency
+from adaptive_ma.instruments import de_drifted_roll_estimator, tsrv_estimator
 
 
 def test_roll_estimator_accuracy_and_dedrifting():
