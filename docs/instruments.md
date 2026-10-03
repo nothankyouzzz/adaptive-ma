@@ -58,7 +58,11 @@ If the local drift magnitude $|\mu_t|$ exceeds $\sigma_\varepsilon$, the raw aut
 The returned `RollResult` provides the estimated noise variance series, the raw autocovariance, and the `truncation_rate` (the proportion of bars where $\operatorname{Cov}_t \ge -R_{\text{floor}}$).
 
 ```python
+from adaptive_ma.eval.dgp import generate_multiscale
 from adaptive_ma.instruments import de_drifted_roll_estimator
+
+# Generate benchmark price series (or pass your own 1D price array)
+prices = generate_multiscale(n=400, seed=1).price
 
 roll_res = de_drifted_roll_estimator(prices, ewma_decay=0.98, r_floor=1e-6)
 print(f"Mean estimated R: {roll_res.noise_var.mean():.4f}")
@@ -92,7 +96,10 @@ Zhang, Mykland, and Aït-Sahalia (2005) introduced the Two-Scale Realized Varian
 In `adaptive_ma.instruments.tsrv_estimator`, this calculation is performed in a rolling, causal window:
 
 ```python
+from adaptive_ma.eval.dgp import generate_multiscale
 from adaptive_ma.instruments import tsrv_estimator
+
+prices = generate_multiscale(n=400, seed=1).price
 
 # Computes rolling integrated variance (Q channel) and noise variance (R channel)
 iv_arr, omega2_arr = tsrv_estimator(prices, window=150, k_subgrids=15)

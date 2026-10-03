@@ -149,7 +149,7 @@ ma, diag = filter_multiscale(series.price, series.imbalance, spec=spec)
 
 print(f"Log-likelihood: {diag['total_loglik']:.2f}")
 print(f"Observability rank: {diag['obs_rank']}/5")
-print(f"Macro level trajectory shape: {diag['state_traj'].shape}")
+print(f"State trajectory shape: {diag['state_traj'].shape}")
 ```
 
 ### 3. Decoupled Volatility Instrument Filtering
@@ -184,7 +184,7 @@ print(f"Mean responsiveness knob xi: {res.xi_arr.mean():.3f}")
 | `adaptive_ma.instruments` | `de_drifted_roll_estimator`, `tsrv_estimator`, `compute_instrument_signals`, `RollResult` | Microstructure noise estimators (Roll autocovariance and TSRV) |
 | `adaptive_ma.volatility` | `filter_volatility_instrument`, `VolFilterResult` | 4-arm decoupled volatility adaptive filter (`instrument`, `fixed`, `naive_rv`, `swapped`) |
 | `adaptive_ma.eval.metrics` | `calc_metrics`, `calc_smoothness`, `calc_lag_cc`, `calc_impulse_response_latency`, `calc_pareto_hypervolume`, `FilterMetrics` | Iso-smoothness, tracking lag, and impulse-response metrics |
-| `adaptive_ma.eval.dgp` | `generate_rw_noise`, `generate_multiscale`, `generate_garch_vol`, `generate_noise_bursts`, `generate_independent_vol_clusters`, `generate_roll_bounce` | Synthetic benchmark data generating processes (B1~B9) |
+| `adaptive_ma.eval.dgp` | `generate_rw_noise`, `generate_multiscale`, `generate_garch_vol`, `generate_noise_bursts`, `generate_independent_vol_clusters`, `generate_roll_bounce` | Synthetic benchmark data generating processes (B1-B9 subset) |
 | `adaptive_ma.eval.baselines` | `calc_sma`, `calc_ema`, `calc_kama`, `tune_ema_on_train` | Benchmark moving averages and train-partition hyperparameter tuning |
 | `adaptive_ma.eval.data` | `load_btc_dataset`, `ensure_btc_data_cached`, `resolve_cache_dir` | Cached Binance 1m data loader with SHA256 integrity checks |
 
