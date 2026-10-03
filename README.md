@@ -1,135 +1,120 @@
 # adaptive-ma
 
-A model-based adaptive moving average: a small state-space model + Kalman
-filter that estimates a latent "fair value" level, instead of a hand-picked
-SMA/EMA window.
+A model-based adaptive moving average toolkit: state-space Kalman filters that estimate latent fair-value levels and structural trends, replacing heuristic window tuning with statistical models.
 
-## Why
+Includes 2-state adaptive filters, a 5-state multiscale structural model, empirical microstructure-noise instruments, and an honest-evaluation harness.
 
-An exponential moving average (EMA) is the optimal filter for a *random walk +
-noise* model:
+---
+
+## Why Model-Based Moving Averages?
+
+An exponential moving average (EMA) is the mathematically optimal filter for a *random walk + white noise* model:
 
 $$x_t = x_{t-1} + w_t, \qquad p_t = x_t + \varepsilon_t$$
 
-For this model the steady-state Kalman gain is exactly the EMA smoothing
-constant:
+Under constant noise variances $w_t \sim \mathcal{N}(0, \sigma_w^2)$ and $\varepsilon_t \sim \mathcal{N}(0, \sigma_\varepsilon^2)$, the steady-state Kalman gain $K$ is exactly the EMA smoothing constant:
 
-$$q = \frac{\sigma_w^2}{\sigma_\varepsilon^2}, \qquad k = \frac{-q + \sqrt{q^2 + 4q}}{2}$$
+$$q = \frac{\sigma_w^2}{\sigma_\varepsilon^2}, \qquad K = \frac{-q + \sqrt{q^2 + 4q}}{2}$$
 
-So picking an EMA window is *equivalent* to picking the signal-to-noise ratio
-$q$ by hand. This library writes the model down explicitly instead: the
-"window" is replaced by interpretable parameters, the gain adapts over time,
-and the level can respond to order flow and to regime shifts.
+Selecting an EMA window is therefore *isomorphic* to picking an assumed signal-to-noise ratio $q$ by hand.
 
-## How is this different from KAMA / VIDYA / AMA?
+`adaptive-ma` makes the underlying time-series model explicit:
 
-Most "adaptive moving averages" (Kaufman's KAMA/AMA, VIDYA, FRAMA, Hull MA,
-etc.) adapt a smoothing constant using a hand-picked market statistic:
+| Indicator | Adaptivity Source | Statistical Model? | Causal? |
+|---|---|---|---|
+| **KAMA / AMA** | Efficiency ratio heuristic | No — heuristic formula | Yes |
+| **VIDYA** | Momentum oscillator (CMO) | No — heuristic formula | Yes |
+| **FRAMA** | Fractal dimension | No — heuristic formula | Yes |
+| **Centered MA** | Centered window convolution | No — smoothing heuristic | **No — leaks future data** |
+| **`adaptive-ma` (2-state)** | Dynamic Kalman gain + shock-dependent noise | **Yes — state-space model** | **Yes — strictly causal** |
+| **`adaptive-ma` (5-state)** | Harvey structural state-space decomposition | **Yes — continuous-time SDE** | **Yes — strictly causal** |
 
-| indicator | adaptivity source | statistical model? |
-|---|---|---|
-| KAMA / AMA | efficiency ratio | no — heuristic |
-| VIDYA | momentum oscillator (CMO) | no — heuristic |
-| FRAMA | fractal dimension | no — heuristic |
-| Hull MA | weighted MAs to reduce lag | no — heuristic |
-| **this library** | Kalman gain + state-dependent noise | **yes — state-space model** |
+In short: heuristic adaptive MAs are clever window pickers; `adaptive-ma` is a principled statistical filter.
 
-Those indicators encode useful market intuition, but the adaptation rule
-itself is chosen by trial and error: there is no underlying model and no
-argument for why that particular statistic should set the window.
+---
 
-Here the adaptivity falls out of the math instead of being bolted on:
+## Two Moving-Average Models
 
-- the gain $K_t$ is the *optimal* filter gain for the assumed dynamics,
-  updated every step from the error covariance, not a hand-tuned rule;
-- in `AdaptiveKalmanMA`, large shocks feed a *permanent* term into the level
-  and widen the level's process noise — a mechanism that maps to a concrete
-  story (large informed flow shifts the trend) rather than an arbitrary
-  formula.
+### 1. 2-State Adaptive Kalman MA (`adaptive_ma.ma`)
 
-In short: heuristic adaptive MAs are "clever window pickers"; this is "a
-model with an optimal filter".
-
-## Model
-
-Price is decomposed as
+Decomposes price into a slow fair-value level $d_t$ and a mean-reverting transient impact $h_t$:
 
 $$p_t = d_t + h_t + \varepsilon_t$$
 
-where $x_t = [d_t,\ h_t]^\top$ is the state, $d_t$ is the slow fair-value level
-(drift) and $h_t$ is the self-exciting (mean-reverting) impact:
-
-$$d_t = d_{t-1} + \lambda_{\mathrm{perm}}\, \mathrm{softthr}(u_t, c) + \eta_t$$
+$$d_t = d_{t-1} + \lambda_{\mathrm{perm}} \operatorname{softthr}(u_t, c) + \eta_t$$
 
 $$h_t = \rho\, h_{t-1} + \alpha_{\mathrm{eff}}\, u_t + \xi_t$$
 
-Here $u_t$ is the signed order-flow imbalance (optional; zeros if unavailable)
-and
+where $u_t$ is observable signed order-flow imbalance (optional; zeros if unavailable), and $\operatorname{softthr}(u, c) = \operatorname{sign}(u) \max(|u| - c, 0)$.
 
-$$\mathrm{softthr}(u, c) = \mathrm{sign}(u)\cdot\max(|u|-c,\, 0)$$
+`AdaptiveKalmanMA` dynamically widens the level's process noise when large shocks arrive ($\sigma_{d,t} = \sigma_d + \gamma |\operatorname{softthr}(u_t, c)|$), enabling the moving average to track structural shifts promptly without lagging.
 
-The moving average is $d_t + h_t$.
+### 2. 5-State Multiscale Structural Model (`adaptive_ma.multiscale`)
 
-`AdaptiveKalmanMA` adds two mechanisms on top of the fixed model:
+Formulated as a continuous-time stochastic differential equation (SDE) and discretized via Van Loan matrix exponentials. The state vector:
 
-- large shocks ($|u_t| > c$) feed a *permanent* term
-  $\lambda_{\mathrm{perm}}\, \mathrm{softthr}(u_t, c)$ into the level;
-- the level's process noise grows with shock size,
+$$x(t) = \begin{bmatrix} \mu(t) & \beta(t) & c(t) & c^*(t) & h(t) \end{bmatrix}^\top$$
 
-$$\sigma_{d,t} = \sigma_d + \gamma\, |\mathrm{softthr}(u_t, c)|$$
+simultaneously isolates:
+- **$\mu(t)$ (Secular Level)**: Slow non-stationary trend.
+- **$\beta(t)$ (Drift Velocity)**: Local slope / slope velocity of $\mu(t)$.
+- **$c(t), c^*(t)$ (Damped Swing Cycle)**: Stochastic harmonic cycle with fundamental period $\tau_{\text{cycle}}$ and damping $\rho_c$.
+- **$h(t)$ (Micro Transient Impact)**: Fast mean-reverting AR(1) driven by order flow $u_t$.
 
-so the MA absorbs regime shifts instead of lagging them.
+The moving average is the combined latent trend: $\hat{y}_{\text{MA}} = \hat{\mu} + \hat{c} + \hat{h}$.
 
-## Kalman filter
+See [docs/multiscale.md](docs/multiscale.md) for the continuous-time SDE specification, Van Loan discretization proofs, scale equivariance, and discrete Lyapunov stationary initialization.
 
-The state-space form is
+---
 
-$$x_t = F x_{t-1} + B u_t + w_t, \qquad w_t \sim N(0, Q_t)$$
+## Decoupled Volatility & Noise Instruments
 
-$$p_t = H x_t + \varepsilon_t, \qquad \varepsilon_t \sim N(0, R)$$
+Standard indicators scale smoothing speed using a single volatility index (e.g. ATR or realized variance). However, the **Gain Invariance Theorem** proves that scaling process noise $Q$ and observation noise $R$ proportionally leaves the Kalman gain $K_t$ unchanged.
 
-with
+`adaptive-ma` extracts two empirical microstructure instruments to separate these channels:
+- **De-drifted Roll (1984) autocovariance**: identifies observation noise variance $R_t$ (bid-ask bounce) while removing trending return bias.
+- **Two-Scale Realized Variance (TSRV)**: identifies noise-corrected integrated variance $Q_t$.
 
-$$F = \begin{bmatrix} 1 & 0 \\\\ 0 & \rho \end{bmatrix}, \qquad H = \begin{bmatrix} 1 & 1 \end{bmatrix}$$
+These instruments independently drive orthogonal $Q$ and $R$ knobs, allowing the filter to speed up during fundamental volatility expansions and slow down during microstructure noise bursts.
 
-The filter alternates predict and update steps:
+See [docs/instruments.md](docs/instruments.md) for theory and implementation.
 
-$$\hat{x}_{t\mid t-1} = F \hat{x}_{t-1} + B u_t, \qquad P_{t\mid t-1} = F P_{t-1} F^\top + Q_t$$
+---
 
-$$K_t = P_{t\mid t-1} H^\top \left( H P_{t\mid t-1} H^\top + R \right)^{-1}$$
+## Installation
 
-$$\hat{x}_t = \hat{x}_{t\mid t-1} + K_t \left( p_t - H \hat{x}_{t\mid t-1} \right)$$
+### Core Package
 
-The Kalman gain $K_t$ adapts each step; in steady state (fixed $Q, R$) it
-converges to a constant, recovering the EMA case above.
+The core package requires only `numpy>=1.20` and `scipy>=1.10`:
 
-## Important: not an alpha
-
-The residual $p_t - (d_t + h_t)$ is mostly observation noise. Trading it as a
-mean-reversion signal produces a large *spurious* backtest edge (the current
-noise term mechanically reverses next bar, i.e. bid-ask bounce). This is a
-denoising / decomposition tool, not a standalone tradeable signal.
-
-## Install
-
-```
-pip install numpy    # only dependency
-```
-
-Then copy `adaptive_ma.py` into your project, or:
-
-```
+```bash
 pip install git+https://github.com/nothankyouzzz/adaptive-ma.git
 ```
 
-## Usage
+### With Evaluation Harness (`eval` extra)
+
+Includes `pandas`, `requests`, and `matplotlib` for synthetic benchmarking and cached data loading:
+
+```bash
+pip install "adaptive-ma[eval] @ git+https://github.com/nothankyouzzz/adaptive-ma.git"
+```
+
+---
+
+## Quickstarts
+
+### 1. 2-State Adaptive MA
+
+The classic 3-tuple public API (`level, excitation, residual`):
 
 ```python
 import numpy as np
 from adaptive_ma import filter_price
 
-price = ...  # 1-D array
-imbalance = ...  # optional signed order flow (same length); None -> zeros
+# Generate synthetic price series
+rng = np.random.default_rng(42)
+price = 100.0 + np.cumsum(rng.normal(0, 0.2, 500))
+imbalance = rng.normal(0, 1.0, 500)  # optional signed order flow
 
 level, excitation, residual = filter_price(
     price,
@@ -137,45 +122,115 @@ level, excitation, residual = filter_price(
     adaptive=True,
     rho=0.8,
     alpha_eff=0.5,
+    sigma_level=0.05,
+    sigma_exc=0.1,
     sigma_eps=0.5,
 )
+
+# The adaptive moving average is the sum of fair-value level and transient excitation
 ma = level + excitation
 ```
 
-See `example.py` for a complete synthetic demo.
+### 2. 5-State Multiscale State-Space Filter
 
-## Parameters
+Run the 5-state Harvey model with automatic scale equivariance:
 
-| name | meaning |
-|---|---|
-| `rho` | excitation persistence (0..1); decay rate of the transient impact |
-| `alpha_eff` | how much a unit of imbalance moves the excitation |
-| `lam_perm` | permanent impact of large shocks on the level |
-| `threshold` | shock-size threshold `c` for the permanent term |
-| `sigma_level` | level process noise (how fast the level can move) |
-| `sigma_exc` | excitation process noise |
-| `sigma_eps` | observation noise |
-| `gamma` | how much `sigma_level` grows with shock size |
+```python
+import numpy as np
+from adaptive_ma.multiscale import build_spec_5state, filter_multiscale
+from adaptive_ma.eval.dgp import generate_multiscale
 
-## Advanced Multiscale & Strategy Modules
+# Generate synthetic multiscale benchmark (macro trend + swing cycle + micro impact)
+series = generate_multiscale(n=1000, seed=42)
 
-This repository also includes a comprehensive multiscale state-space extension:
+# Build 5-state specification and run filter
+spec = build_spec_5state(cycle_period=45.0, rho_c=0.96, rho_h=0.60)
+ma, diag = filter_multiscale(series.price, series.imbalance, spec=spec)
 
-- **`multiscale_ma.py`**: Harvey 5-state structural model decomposing price into secular drift ($\mu_t$), drift velocity ($\beta_t$), damped cycle ($c_t$), and micro transient impact ($h_t$).
-- **`volatility_ma.py`**: Decoupled process noise ($Q$) and observation noise ($R$) adaptation using de-drifted Roll autocovariance and Two-Scale Realized Variance (TSRV).
-- **`bench/`**: Comprehensive synthetic benchmark suite (B1~B9) and cached Binance BTC/USDT data loader.
+print(f"Log-likelihood: {diag['total_loglik']:.2f}")
+print(f"Observability rank: {diag['obs_rank']}/5")
+print(f"State trajectory shape: {diag['state_traj'].shape}")
+```
+
+### 3. Decoupled Volatility Instrument Filtering
+
+Adapt smoothing speed using empirical microstructure noise and integrated variance:
+
+```python
+from adaptive_ma.volatility import filter_volatility_instrument
+from adaptive_ma.eval.dgp import generate_independent_vol_clusters
+
+# Series with independent fundamental volatility shifts and noise bursts
+series = generate_independent_vol_clusters(n=1500, seed=42)
+
+# Filter with decoupled Q and R instruments
+res = filter_volatility_instrument(series.price, mode="instrument")
+
+print(f"MA shape: {res.ma.shape}")
+print(f"Mean responsiveness knob xi: {res.xi_arr.mean():.3f}")
+```
+
+---
+
+## Public API Overview
+
+| Module | Key Functions / Classes | Description |
+|---|---|---|
+| `adaptive_ma` | `filter_price`, `KalmanMA`, `AdaptiveKalmanMA`, `FilterResult`, `StepResult` | Backward-compatible 2-state adaptive Kalman moving average |
+| `adaptive_ma.multiscale` | `build_spec_5state`, `build_spec_5state_ct`, `build_spec_2state`, `build_spec_3state`, `calc_observability`, `filter_multiscale` | 5-state continuous and discrete state-space models |
+| `adaptive_ma.core` | `StateSpaceSpec`, `ContinuousTimeSpec`, `van_loan_discretization`, `run_filter`, `SSMOutput` | Core Kalman filter engine with scale equivariance (P1) and knob separation (P2) |
+| `adaptive_ma.params` | `MultiscaleParams`, `calc_u_scale` | Constrained parameter transformations and robust MAD scale estimation |
+| `adaptive_ma.estimate` | `fit_multiscale_mle`, `build_spec_from_params`, `FitResult` | Penalized multi-start MLE parameter estimation |
+| `adaptive_ma.instruments` | `de_drifted_roll_estimator`, `tsrv_estimator`, `compute_instrument_signals`, `RollResult` | Microstructure noise estimators (Roll autocovariance and TSRV) |
+| `adaptive_ma.volatility` | `filter_volatility_instrument`, `VolFilterResult` | 4-arm decoupled volatility adaptive filter (`instrument`, `fixed`, `naive_rv`, `swapped`) |
+| `adaptive_ma.eval.metrics` | `calc_metrics`, `calc_smoothness`, `calc_lag_cc`, `calc_impulse_response_latency`, `calc_pareto_hypervolume`, `FilterMetrics` | Iso-smoothness, tracking lag, and impulse-response metrics |
+| `adaptive_ma.eval.dgp` | `generate_rw_noise`, `generate_multiscale`, `generate_garch_vol`, `generate_noise_bursts`, `generate_independent_vol_clusters`, `generate_roll_bounce` | Synthetic benchmark data generating processes (B1-B9 subset) |
+| `adaptive_ma.eval.baselines` | `calc_sma`, `calc_ema`, `calc_kama`, `tune_ema_on_train` | Benchmark moving averages and train-partition hyperparameter tuning |
+| `adaptive_ma.eval.data` | `load_btc_dataset`, `ensure_btc_data_cached`, `resolve_cache_dir` | Cached Binance 1m data loader with SHA256 integrity checks |
+
+---
+
+## In-Depth Documentation
+
+- [docs/multiscale.md](docs/multiscale.md): Continuous-time SDE formulation, Van Loan discretization, scale equivariance, discrete Lyapunov initialization, observability proofs, and MLE fitting.
+- [docs/instruments.md](docs/instruments.md): De-drifted Roll estimator, Two-Scale Realized Variance (TSRV), and the Gain Invariance Theorem.
+- [docs/evaluation.md](docs/evaluation.md): Honest moving average evaluation, iso-smoothness comparisons, causal lag metrics, synthetic DGPs, and the bid-ask bounce trap.
+
+---
+
+## Important Methodological Note: The Residual is Not an Alpha
+
+The filter residual:
+
+$$e_t = p_t - \hat{y}_t$$
+
+predominantly reflects microstructure observation noise (e.g. bid-ask bounce). Naively trading this residual as a mean-reversion signal creates a strong **spurious** backtest edge because the observation noise mechanically reverses on the subsequent transaction.
+
+In live execution, crossing the bid-ask spread and paying exchange fees eliminates this apparent edge entirely. This library is designed for denoising, state tracking, and trend decomposition—not as a standalone trading signal generator. See [docs/evaluation.md](docs/evaluation.md) for detailed analysis and synthetic null controls.
+
+---
 
 ## Development & Testing
 
-Managed with `uv`:
+The repository uses `uv` for environment management:
 
 ```bash
+# Install all dependencies and extras
 uv sync --all-extras
-uv run pytest -v tests/
+
+# Run the complete test suite
+uv run pytest -v
+
+# Code quality checks
 uv run ruff check .
 uv run ruff format --check .
-ty check
+
+# Run runnable examples
+uv run python examples/adaptive_ma_demo.py
+uv run python examples/multiscale_demo.py
 ```
+
+---
 
 ## License
 
