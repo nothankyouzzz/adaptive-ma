@@ -56,7 +56,8 @@ tree_denylist = re.compile(
 )
 
 diff_denylist = re.compile(
-    r"\b(whale|rider|ai_handover|research_report|analyze_|artifacts|sharpe|sortino|drawdown|win[-_]?rate)\b|"
+    r"\b(whale|rider|ai_handover|research_report|artifacts|sharpe|sortino|drawdown|win[-_]?rate)\b|"
+    r"\banalyze_|"
     r"\bstrategy\b|"
     r"\bexecution\b",
     re.IGNORECASE
@@ -106,7 +107,7 @@ for line in log_proc.stdout:
             continue
         # - Legitimate financial discussion of trading frictions ("live execution")
         if "live execution" in added_line.lower() and not re.search(
-            r"\b(whale|rider|ai_handover|research_report|analyze_|artifacts|sharpe|sortino|drawdown|win[-_]?rate)\b",
+            r"\b(whale|rider|ai_handover|research_report|artifacts|sharpe|sortino|drawdown|win[-_]?rate)\b|\banalyze_",
             added_line,
             re.IGNORECASE
         ):
@@ -142,7 +143,7 @@ for ref in all_refs:
         ref_sha = subprocess.check_output(["git", "rev-parse", ref], text=True).strip()
     except subprocess.CalledProcessError:
         continue
-    if ref_sha == head_sha or ref == "refs/heads/feat/t5-prepush-hardening":
+    if ref_sha == head_sha:
         continue
 
     proc = subprocess.Popen(
