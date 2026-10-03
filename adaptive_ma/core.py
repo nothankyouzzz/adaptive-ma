@@ -278,11 +278,15 @@ def run_filter(
         y_pred_unnorm = y_pred_arr * u_scale + p0
         innovations_unnorm = innovations * u_scale
         S_unnorm = S_arr * (u_scale**2)
+        P_diag_traj_unnorm = P_diag_traj * (u_scale**2)
+        P_traj_unnorm = P_traj * (u_scale**2)
     else:
         state_traj_unnorm = state_traj
         y_pred_unnorm = y_pred_arr
         innovations_unnorm = innovations
         S_unnorm = S_arr
+        P_diag_traj_unnorm = P_diag_traj
+        P_traj_unnorm = P_traj
 
     # Moving average output: sum of designated output components
     ma_unnorm = np.sum(state_traj_unnorm[:, spec.output_indices], axis=1)
@@ -296,8 +300,8 @@ def run_filter(
         K_traj=K_traj,
         loglik_per_bar=loglik_arr,
         total_loglik=total_loglik,
-        P_diag_traj=P_diag_traj,
-        P_traj=P_traj,
+        P_diag_traj=P_diag_traj_unnorm,
+        P_traj=P_traj_unnorm,
         z_beta=z_beta_arr,
         u_scale=u_scale,
     )

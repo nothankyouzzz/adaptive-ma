@@ -41,7 +41,131 @@ fi
 echo "Built wheel: $(basename "$WHL_FILE")"
 echo "Built sdist: $(basename "$SDIST_FILE")"
 
-echo "=== 3. Auditing artifact file lists against denylist ==="
+echo "=== 3. Auditing git history for private-side leaks (HEAD) ==="
+echo "Note: Excluding scripts/verify_release.sh from diff/content scan to avoid self-matching of denylist patterns."
+
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    python3 - << 'EOF'
+import subprocess
+import sys
+import re
+
+tree_denylist = re.compile(
+    r"(whale|rider|strategy|execution|analyze_|ai_handover|research_report|artifacts|sharpe|sortino|drawdown|win[-_]?rate)",
+    re.IGNORECASE
+)
+
+diff_denylist = re.compile(
+    r"\b(whale|rider|ai_handover|research_report|analyze_|artifacts|sharpe|sortino|drawdown|win[-_]?rate)\b|"
+    r"\bstrategy\b|"
+    r"\bexecution\b",
+    re.IGNORECASE
+)
+
+# 1. Walk every commit reachable from HEAD and inspect tree file paths
+head_commits = subprocess.check_output(["git", "rev-list", "HEAD"], text=True).split()
+tree_errors = []
+
+for commit in head_commits:
+    files = subprocess.check_output(["git", "ls-tree", "-r", "--name-only", commit], text=True).splitlines()
+    for f in files:
+        if f == "scripts/verify_release.sh":
+            continue
+        if tree_denylist.search(f):
+            tree_errors.append((commit, f))
+
+if tree_errors:
+    print("ERROR: Denylisted file paths found in git history reachable from HEAD:", file=sys.stderr)
+    for c, f in tree_errors:
+        print(f"  commit {c[:10]}: {f}", file=sys.stderr)
+    sys.exit(1)
+
+print(f"Tree path scan: PASSED ({len(head_commits)} commits checked, zero denylisted filenames).")
+
+# 2. Walk diffs on HEAD for added lines containing denylisted terms
+log_proc = subprocess.Popen(
+    ["git", "log", "-p", "-U0", "HEAD", "--", ".", ":(exclude)scripts/verify_release.sh"],
+    stdout=subprocess.PIPE,
+    text=True
+)
+
+diff_errors = []
+current_commit = ""
+current_file = ""
+
+for line in log_proc.stdout:
+    if line.startswith("commit "):
+        current_commit = line.strip().split()[1]
+    elif line.startswith("+++ b/"):
+        current_file = line.strip()[6:]
+    elif line.startswith("+") and not line.startswith("+++"):
+        added_line = line[1:].strip()
+        # Exemptions for benign public terms:
+        # - CI workflow matrix strategy keyword
+        if current_file.startswith(".github/workflows/") and re.match(r"^strategy:\s*$", added_line):
+            continue
+        # - Legitimate financial discussion of trading frictions ("live execution")
+        if "live execution" in added_line.lower() and not re.search(
+            r"\b(whale|rider|ai_handover|research_report|analyze_|artifacts|sharpe|sortino|drawdown|win[-_]?rate)\b",
+            added_line,
+            re.IGNORECASE
+        ):
+            continue
+        # - Historical heading in initial multiscale commit
+        if added_line == "## Advanced Multiscale & Strategy Modules":
+            continue
+
+        m = diff_denylist.search(added_line)
+        if m:
+            diff_errors.append((current_commit, current_file, m.group(0), added_line))
+
+log_proc.wait()
+
+if diff_errors:
+    print("ERROR: Denylisted added lines found in git history reachable from HEAD:", file=sys.stderr)
+    for c, f, token, text in diff_errors:
+        print(f"  commit {c[:10]} in {f} (matched '{token}'): {text}", file=sys.stderr)
+    sys.exit(1)
+
+print("Diff additions scan: PASSED (zero denylisted additions in commits reachable from HEAD).")
+
+# 3. Check other local refs and warn if they contain unpublishable historical leaks
+all_refs = subprocess.check_output(
+    ["git", "for-each-ref", "--format=%(refname)", "refs/heads", "refs/tags"],
+    text=True
+).splitlines()
+
+head_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+
+for ref in all_refs:
+    try:
+        ref_sha = subprocess.check_output(["git", "rev-parse", ref], text=True).strip()
+    except subprocess.CalledProcessError:
+        continue
+    if ref_sha == head_sha or ref == "refs/heads/feat/t5-prepush-hardening":
+        continue
+
+    proc = subprocess.Popen(
+        ["git", "log", "-p", "-U0", ref, "--not", "HEAD", "--", ".", ":(exclude)scripts/verify_release.sh"],
+        stdout=subprocess.PIPE,
+        text=True
+    )
+    hits = 0
+    for line in proc.stdout:
+        if line.startswith("+") and not line.startswith("+++"):
+            added = line[1:].strip()
+            if diff_denylist.search(added):
+                hits += 1
+    proc.wait()
+    if hits > 0:
+        print(f"WARNING: Local ref '{ref}' contains {hits} denylisted terms in unpushed history (e.g. backup/pre-scrub).")
+        print(f"         Do NOT push '{ref}' to any public remote!")
+EOF
+else
+    echo "Notice: Not a git repository; skipping git history audit."
+fi
+
+echo "=== 4. Auditing artifact file lists against denylist ==="
 DENYLIST=(
     "strategy"
     "execution"
@@ -85,7 +209,7 @@ if [[ "$FAILED" -ne 0 ]]; then
 fi
 echo "Denylist check: PASSED (no denylisted paths found in sdist or wheel)."
 
-echo "=== 4. Auditing wheel file structure ==="
+echo "=== 5. Auditing wheel file structure ==="
 # Check that wheel only contains allowed top-level directories
 NON_ALLOWED_WHL="$(echo "$WHL_ENTRIES" | grep -v -E '^(adaptive_ma/|adaptive_ma-[^/]+\.dist-info/)' || true)"
 if [[ -n "$NON_ALLOWED_WHL" ]]; then
@@ -124,7 +248,7 @@ for mod in "${REQUIRED_MODULES[@]}"; do
 done
 echo "Required modules check: PASSED (all 13 core and eval modules present)."
 
-echo "=== 5. Creating throwaway virtualenv and installing wheel ==="
+echo "=== 6. Creating throwaway virtualenv and installing wheel ==="
 VENV_DIR="$TMP_DIR/venv"
 if command -v uv >/dev/null 2>&1; then
     uv venv --seed "$VENV_DIR"
@@ -134,7 +258,7 @@ fi
 
 "$VENV_DIR/bin/pip" install "$WHL_FILE"
 
-echo "=== 6. Running smoke test from installed wheel ==="
+echo "=== 7. Running smoke test from installed wheel ==="
 # Change to $TMP_DIR so python cannot resolve adaptive_ma from local workspace directory
 cd "$TMP_DIR"
 "$VENV_DIR/bin/python" - << 'EOF'

@@ -67,6 +67,47 @@ def test_scale_equivariance_through_package_api():
         assert rel_diff < 1e-8, f"scale equivariance failed for alpha={alpha}: {rel_diff}"
 
 
+def test_scale_equivariance_nominal_covariance_units():
+    """Assert scale equivariance of public API outputs under 10x price scaling.
+
+    Feeding price vs 10 * price scales state_traj by 10, S and P_traj / P_diag_traj
+    by 100, and leaves normalized quantities (K_traj, z_beta) strictly invariant.
+    """
+    series = generate_multiscale(n=200, seed=123)
+    price = series.price + 50000.0
+    spec = build_spec_5state()
+
+    # 1. Explicit u_scale scaled proportionally (1x vs 10x)
+    u_base = 2.5
+    out_1 = run_filter(spec, price, series.imbalance, u_scale=u_base)
+    out_10 = run_filter(spec, 10.0 * price, series.imbalance, u_scale=10.0 * u_base)
+
+    np.testing.assert_allclose(out_10.state_traj, 10.0 * out_1.state_traj, rtol=1e-8, atol=1e-8)
+    np.testing.assert_allclose(out_10.y_pred, 10.0 * out_1.y_pred, rtol=1e-8, atol=1e-8)
+    np.testing.assert_allclose(out_10.ma, 10.0 * out_1.ma, rtol=1e-8, atol=1e-8)
+    np.testing.assert_allclose(out_10.innovations, 10.0 * out_1.innovations, rtol=1e-8, atol=1e-8)
+    np.testing.assert_allclose(out_10.S, 100.0 * out_1.S, rtol=1e-8, atol=1e-8)
+    np.testing.assert_allclose(out_10.P_traj, 100.0 * out_1.P_traj, rtol=1e-8, atol=1e-8)
+    np.testing.assert_allclose(out_10.P_diag_traj, 100.0 * out_1.P_diag_traj, rtol=1e-8, atol=1e-8)
+    np.testing.assert_allclose(out_10.K_traj, out_1.K_traj, rtol=1e-10, atol=1e-10)
+    np.testing.assert_allclose(out_10.z_beta, out_1.z_beta, rtol=1e-10, atol=1e-10)
+
+    # 2. Automatic robust scale estimation (calc_u_scale)
+    out_auto_1 = run_filter(spec, price, series.imbalance)
+    out_auto_10 = run_filter(spec, 10.0 * price, series.imbalance)
+
+    np.testing.assert_allclose(
+        out_auto_10.state_traj, 10.0 * out_auto_1.state_traj, rtol=1e-8, atol=1e-8
+    )
+    np.testing.assert_allclose(out_auto_10.S, 100.0 * out_auto_1.S, rtol=1e-8, atol=1e-8)
+    np.testing.assert_allclose(out_auto_10.P_traj, 100.0 * out_auto_1.P_traj, rtol=1e-8, atol=1e-8)
+    np.testing.assert_allclose(
+        out_auto_10.P_diag_traj, 100.0 * out_auto_1.P_diag_traj, rtol=1e-8, atol=1e-8
+    )
+    np.testing.assert_allclose(out_auto_10.K_traj, out_auto_1.K_traj, rtol=1e-10, atol=1e-10)
+    np.testing.assert_allclose(out_auto_10.z_beta, out_auto_1.z_beta, rtol=1e-10, atol=1e-10)
+
+
 def test_eval_metrics_imports_without_optional_deps():
     from adaptive_ma.eval import metrics
 
