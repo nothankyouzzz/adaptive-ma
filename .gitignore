@@ -1,12 +1,18 @@
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 *.egg-info/
 build/
 dist/
 .venv/
 .pytest_cache/
 .ruff_cache/
+.coverage
+htmlcov/
 
 # Cached market data (re-fetchable)
 bench/data/cache/
 data/cache/
+
+# Agent workspaces
+.tower/
