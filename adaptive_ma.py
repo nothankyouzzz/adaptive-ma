@@ -23,13 +23,36 @@ shock size, so the MA can absorb regime shifts instead of lagging them.
    should not be traded as a mean-reversion signal (that apparent edge is a
    mechanical noise bounce). See the README.
 """
+
 from __future__ import annotations
+
+import math
+from typing import NamedTuple
 
 import numpy as np
 
 
 def _softthr(u: float, c: float) -> float:
     return float(np.sign(u) * max(abs(u) - c, 0.0))
+
+
+class StepResult(NamedTuple):
+    level: float
+    excitation: float
+    innovation: float
+    S: float
+    loglik: float
+    K: np.ndarray
+
+
+class FilterResult(NamedTuple):
+    level: np.ndarray
+    excitation: np.ndarray
+    residual: np.ndarray
+    innovations: np.ndarray
+    S: np.ndarray
+    loglik: np.ndarray
+    K: np.ndarray
 
 
 class KalmanMA:
@@ -40,32 +63,65 @@ class KalmanMA:
     order-flow imbalance (the transient impact component).
     """
 
-    def __init__(self, rho: float, alpha_eff: float,
-                 sigma_level: float = 1e-2, sigma_exc: float = 0.2,
-                 sigma_eps: float = 1.0) -> None:
+    def __init__(
+        self,
+        rho: float,
+        alpha_eff: float,
+        sigma_level: float = 1e-2,
+        sigma_exc: float = 0.2,
+        sigma_eps: float = 1.0,
+    ) -> None:
         self.rho = float(rho)
         self.alpha_eff = float(alpha_eff)
+        self.sigma_level = float(sigma_level)
+        self.sigma_exc = float(sigma_exc)
+        self.sigma_eps = float(sigma_eps)
         self.F = np.array([[1.0, 0.0], [0.0, self.rho]])
         self.B = np.array([[0.0], [self.alpha_eff]])
         self.H = np.array([[1.0, 1.0]])
-        self.Q = np.diag([float(sigma_level) ** 2, float(sigma_exc) ** 2])
-        self.R = np.array([[float(sigma_eps) ** 2]])
+        self.Q = np.diag([self.sigma_level**2, self.sigma_exc**2])
+        self.R = np.array([[self.sigma_eps**2]])
         self.x = np.zeros((2, 1))
         self.P = np.eye(2)
+        self.last_result: StepResult | None = None
 
-    def step(self, u: float, y: float) -> tuple[float, float]:
-        """Run one filter step; returns ``(level, excitation)``."""
+    def step_full(self, u: float, y: float) -> StepResult:
+        """Run one filter step returning complete diagnostics."""
         x_pred = self.F @ self.x + self.B * u
         P_pred = self.F @ self.P @ self.F.T + self.Q
 
         y_pred = float((self.H @ x_pred)[0, 0])
-        S = self.H @ P_pred @ self.H.T + self.R
-        K = P_pred @ self.H.T @ np.linalg.inv(S)
+        S_val = float((self.H @ P_pred @ self.H.T + self.R)[0, 0])
+        K = P_pred @ self.H.T / S_val
 
-        innovation = y - y_pred
+        innovation = float(y - y_pred)
         self.x = x_pred + K * innovation
-        self.P = (np.eye(2) - K @ self.H) @ P_pred
-        return float(self.x[0, 0]), float(self.x[1, 0])
+
+        # Joseph-form covariance update with symmetrization
+        I_KH = np.eye(2) - K @ self.H
+        P_post = I_KH @ P_pred @ I_KH.T + K @ self.R @ K.T
+        self.P = 0.5 * (P_post + P_post.T)
+
+        loglik = -0.5 * (
+            math.log(2.0 * math.pi)
+            + math.log(max(S_val, 1e-12))
+            + (innovation**2) / max(S_val, 1e-12)
+        )
+        res = StepResult(
+            level=float(self.x[0, 0]),
+            excitation=float(self.x[1, 0]),
+            innovation=innovation,
+            S=S_val,
+            loglik=loglik,
+            K=K.copy(),
+        )
+        self.last_result = res
+        return res
+
+    def step(self, u: float, y: float) -> tuple[float, float]:
+        """Run one filter step; returns ``(level, excitation)``."""
+        res = self.step_full(u, y)
+        return res.level, res.excitation
 
 
 class AdaptiveKalmanMA:
@@ -80,10 +136,17 @@ class AdaptiveKalmanMA:
       ``sigma_level_t = sigma_level + gamma * |softthr(u_t, c)|``.
     """
 
-    def __init__(self, rho: float, alpha_eff: float,
-                 lam_perm: float = 0.0, threshold: float = 0.0,
-                 sigma_level: float = 1e-2, sigma_exc: float = 0.2,
-                 sigma_eps: float = 1.0, gamma: float = 0.0) -> None:
+    def __init__(
+        self,
+        rho: float,
+        alpha_eff: float,
+        lam_perm: float = 0.0,
+        threshold: float = 0.0,
+        sigma_level: float = 1e-2,
+        sigma_exc: float = 0.2,
+        sigma_eps: float = 1.0,
+        gamma: float = 0.0,
+    ) -> None:
         self.rho = float(rho)
         self.alpha_eff = float(alpha_eff)
         self.lam_perm = float(lam_perm)
@@ -94,32 +157,57 @@ class AdaptiveKalmanMA:
         self.sigma_eps = float(sigma_eps)
         self.F = np.array([[1.0, 0.0], [0.0, self.rho]])
         self.H = np.array([[1.0, 1.0]])
-        self.R = np.array([[self.sigma_eps ** 2]])
+        self.R = np.array([[self.sigma_eps**2]])
         self.x = np.zeros((2, 1))
         self.P = np.eye(2)
+        self.last_result: StepResult | None = None
 
-    def step(self, u: float, y: float) -> tuple[float, float]:
-        """Run one filter step; returns ``(level, excitation)``."""
+    def step_full(self, u: float, y: float) -> StepResult:
+        """Run one filter step returning complete diagnostics."""
         g = _softthr(u, self.threshold)
         B = np.array([[self.lam_perm, 0.0], [0.0, self.alpha_eff]])
         u_vec = np.array([[g], [u]])
         sigma_level_t = self.sigma_level + self.gamma * abs(g)
-        Q = np.diag([sigma_level_t ** 2, self.sigma_exc ** 2])
+        Q = np.diag([sigma_level_t**2, self.sigma_exc**2])
 
         x_pred = self.F @ self.x + B @ u_vec
         P_pred = self.F @ self.P @ self.F.T + Q
 
         y_pred = float((self.H @ x_pred)[0, 0])
-        S = self.H @ P_pred @ self.H.T + self.R
-        K = P_pred @ self.H.T @ np.linalg.inv(S)
+        S_val = float((self.H @ P_pred @ self.H.T + self.R)[0, 0])
+        K = P_pred @ self.H.T / S_val
 
-        innovation = y - y_pred
+        innovation = float(y - y_pred)
         self.x = x_pred + K * innovation
-        self.P = (np.eye(2) - K @ self.H) @ P_pred
-        return float(self.x[0, 0]), float(self.x[1, 0])
+
+        # Joseph-form covariance update with symmetrization
+        I_KH = np.eye(2) - K @ self.H
+        P_post = I_KH @ P_pred @ I_KH.T + K @ self.R @ K.T
+        self.P = 0.5 * (P_post + P_post.T)
+
+        loglik = -0.5 * (
+            math.log(2.0 * math.pi)
+            + math.log(max(S_val, 1e-12))
+            + (innovation**2) / max(S_val, 1e-12)
+        )
+        res = StepResult(
+            level=float(self.x[0, 0]),
+            excitation=float(self.x[1, 0]),
+            innovation=innovation,
+            S=S_val,
+            loglik=loglik,
+            K=K.copy(),
+        )
+        self.last_result = res
+        return res
+
+    def step(self, u: float, y: float) -> tuple[float, float]:
+        """Run one filter step; returns ``(level, excitation)``."""
+        res = self.step_full(u, y)
+        return res.level, res.excitation
 
 
-def filter_price(price, imbalance=None, adaptive: bool = True, **kwargs):
+def filter_price(price, imbalance=None, adaptive: bool = True, return_full: bool = False, **kwargs):
     """Run the filter over a series and return the decomposition.
 
     Parameters
@@ -132,12 +220,15 @@ def filter_price(price, imbalance=None, adaptive: bool = True, **kwargs):
     adaptive : bool
         Use :class:`AdaptiveKalmanMA` (``True``) or :class:`KalmanMA`
         (``False``).
+    return_full : bool
+        If ``True``, return :class:`FilterResult` containing innovations, S,
+        loglik, and K.
     **kwargs
         Passed to the filter constructor (e.g. ``rho``, ``alpha_eff``).
 
     Returns
     -------
-    level, excitation, residual : ndarray
+    level, excitation, residual : ndarray (or FilterResult if return_full=True)
         The moving average is ``level + excitation``.
     """
     price = np.asarray(price, dtype=float)
@@ -148,11 +239,35 @@ def filter_price(price, imbalance=None, adaptive: bool = True, **kwargs):
 
     cls = AdaptiveKalmanMA if adaptive else KalmanMA
     kf = cls(**kwargs)
+    if n > 0:
+        kf.x[0, 0] = price[0]
 
     level = np.zeros(n)
     excitation = np.zeros(n)
+    innovations = np.zeros(n)
+    S_arr = np.zeros(n)
+    loglik_arr = np.zeros(n)
+    K_arr = np.zeros((n, 2))
+
     for t in range(n):
-        level[t], excitation[t] = kf.step(imbalance[t], price[t])
+        res = kf.step_full(imbalance[t], price[t])
+        level[t] = res.level
+        excitation[t] = res.excitation
+        innovations[t] = res.innovation
+        S_arr[t] = res.S
+        loglik_arr[t] = res.loglik
+        K_arr[t] = res.K.ravel()
 
     residual = price - (level + excitation)
+
+    if return_full:
+        return FilterResult(
+            level=level,
+            excitation=excitation,
+            residual=residual,
+            innovations=innovations,
+            S=S_arr,
+            loglik=loglik_arr,
+            K=K_arr,
+        )
     return level, excitation, residual

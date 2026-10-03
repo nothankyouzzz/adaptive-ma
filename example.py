@@ -1,4 +1,5 @@
 """Quick demo: synthetic price -> adaptive moving average."""
+
 import numpy as np
 
 from adaptive_ma import filter_price
@@ -13,16 +14,21 @@ def main() -> None:
     # ground truth consistent with the model:
     #   level = random walk, excitation = AR(1) driven by order flow
     level = np.cumsum(rng.normal(0, 0.05, n))
-    imbalance = rng.normal(0, 1.0, n)                 # signed order flow
+    imbalance = rng.normal(0, 1.0, n)  # signed order flow
     excitation = np.zeros(n)
     for t in range(1, n):
         excitation[t] = rho * excitation[t - 1] + alpha_eff * imbalance[t]
     price = level + excitation + rng.normal(0, 0.5, n)
 
     lvl, exc, residual = filter_price(
-        price, imbalance, adaptive=True,
-        rho=rho, alpha_eff=alpha_eff,
-        sigma_level=0.05, sigma_exc=0.01, sigma_eps=0.5,
+        price,
+        imbalance,
+        adaptive=True,
+        rho=rho,
+        alpha_eff=alpha_eff,
+        sigma_level=0.05,
+        sigma_exc=0.01,
+        sigma_eps=0.5,
     )
     ma = lvl + exc
 

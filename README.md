@@ -128,12 +128,16 @@ pip install git+https://github.com/nothankyouzzz/adaptive-ma.git
 import numpy as np
 from adaptive_ma import filter_price
 
-price = ...        # 1-D array
-imbalance = ...    # optional signed order flow (same length); None -> zeros
+price = ...  # 1-D array
+imbalance = ...  # optional signed order flow (same length); None -> zeros
 
 level, excitation, residual = filter_price(
-    price, imbalance, adaptive=True,
-    rho=0.8, alpha_eff=0.5, sigma_eps=0.5,
+    price,
+    imbalance,
+    adaptive=True,
+    rho=0.8,
+    alpha_eff=0.5,
+    sigma_eps=0.5,
 )
 ma = level + excitation
 ```
@@ -152,6 +156,26 @@ See `example.py` for a complete synthetic demo.
 | `sigma_exc` | excitation process noise |
 | `sigma_eps` | observation noise |
 | `gamma` | how much `sigma_level` grows with shock size |
+
+## Advanced Multiscale & Strategy Modules
+
+This repository also includes a comprehensive multiscale state-space extension:
+
+- **`multiscale_ma.py`**: Harvey 5-state structural model decomposing price into secular drift ($\mu_t$), drift velocity ($\beta_t$), damped cycle ($c_t$), and micro transient impact ($h_t$).
+- **`volatility_ma.py`**: Decoupled process noise ($Q$) and observation noise ($R$) adaptation using de-drifted Roll autocovariance and Two-Scale Realized Variance (TSRV).
+- **`bench/`**: Comprehensive synthetic benchmark suite (B1~B9) and cached Binance BTC/USDT data loader.
+
+## Development & Testing
+
+Managed with `uv`:
+
+```bash
+uv sync --all-extras
+uv run pytest -v tests/
+uv run ruff check .
+uv run ruff format --check .
+ty check
+```
 
 ## License
 
