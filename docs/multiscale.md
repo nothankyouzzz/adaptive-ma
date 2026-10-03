@@ -98,13 +98,13 @@ $$\operatorname{filter}(\alpha \cdot p, u) = \alpha \cdot \operatorname{filter}(
 2. **Dimensionless Price**: Normalize raw prices relative to origin $p_0$:
    $$\tilde{p}_t = \frac{p_t - p_0}{u_{\text{scale}}}$$
 3. **Filtering**: Run the Kalman filter in normalized dimensionless coordinates. The initial level state is warm-started to $\tilde{p}_0 = 0$.
-4. **Denormalization**: Project state trajectories and observation variance back to nominal units:
+4. **Denormalization**: Project state trajectories, observation variance, and state error covariances back to nominal units:
    $$\hat{x}_t \leftarrow \hat{x}_t \cdot u_{\text{scale}}, \qquad \hat{\mu}_t \leftarrow \hat{\mu}_t \cdot u_{\text{scale}} + p_0$$
-   $$S_t \leftarrow S_t \cdot u_{\text{scale}}^2$$
+   $$S_t \leftarrow S_t \cdot u_{\text{scale}}^2, \qquad P_t \leftarrow P_t \cdot u_{\text{scale}}^2$$
 
 > **Note on State Covariances (`P_traj`, `P_diag_traj`):**
-> `adaptive_ma.core.run_filter` denormalizes `state_traj`, `y_pred`, `innovations`, and innovation variance `S`. The state error covariance trajectory arrays `P_traj` and `P_diag_traj` are returned directly in normalized (dimensionless) units. If you are constructing nominal confidence or uncertainty bands for state $i$, scale the standard deviation by $u_{\text{scale}}$:
-> $$\sigma_{\text{nominal}, i}(t) = u_{\text{scale}} \cdot \sqrt{P_{t, ii}}$$
+> `adaptive_ma.core.run_filter` denormalizes `state_traj`, `y_pred`, `innovations`, innovation variance `S`, and the full covariance trajectory `P_traj` / `P_diag_traj`. All returned trajectories are in nominal units; uncertainty bands for state $i$ can be constructed directly from $P_{t, ii}$ without manual rescaling:
+> $$\sigma_{\text{nominal}, i}(t) = \sqrt{P_{t, ii}}$$
 
 The test suite verifies this identity to $< 10^{-8}$ relative difference across scale shifts from $0.1\times$ to $10\times$.
 
